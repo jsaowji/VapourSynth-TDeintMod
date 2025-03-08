@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <mutex>
 #include <limits>
 
 #include <VapourSynth.h>

@@ -1658,6 +1658,7 @@ struct IsCombedData {
     bool chroma;
     int cthresh6, cthreshsq, xHalf, yHalf, xShift, yShift, arraySize, xBlocks4, widtha, heighta;
     std::unordered_map<std::thread::id, int *> cArray;
+    std::mutex unordered_map_mutex;
 };
 
 static bool isPowerOf2(const int i) noexcept {
@@ -1665,10 +1666,11 @@ static bool isPowerOf2(const int i) noexcept {
 }
 
 template<typename T>
-static int64_t checkCombed(const VSFrameRef * src, VSFrameRef * cmask, const IsCombedData * d, const VSAPI * vsapi) noexcept {
+static int64_t checkCombed(const VSFrameRef * src, VSFrameRef * cmask, IsCombedData * d, const VSAPI * vsapi) noexcept {
     constexpr T peak = std::numeric_limits<T>::max();
-
+    d->unordered_map_mutex.lock();
     int * VS_RESTRICT cArray = d->cArray.at(std::this_thread::get_id());
+    d->unordered_map_mutex.unlock();
 
     for (int plane = 0; plane < (d->chroma ? 3 : 1); plane++) {
         const int width = vsapi->getFrameWidth(src, plane);
@@ -2014,6 +2016,7 @@ static const VSFrameRef *VS_CC iscombedGetFrame(int n, int activationReason, voi
         vsapi->requestFrameFilter(n, d->node, frameCtx);
     } else if (activationReason == arAllFramesReady) {
         auto threadId = std::this_thread::get_id();
+        d->unordered_map_mutex.lock();
         if (!d->cArray.count(threadId)) {
             int * cArray = new (std::nothrow) int[d->arraySize];
             if (!cArray) {
@@ -2022,7 +2025,7 @@ static const VSFrameRef *VS_CC iscombedGetFrame(int n, int activationReason, voi
             }
             d->cArray.emplace(threadId, cArray);
         }
-
+        d->unordered_map_mutex.unlock();
         const VSFrameRef * src = vsapi->getFrameFilter(n, d->node, frameCtx);
         VSFrameRef * cmask = vsapi->newVideoFrame(d->vi->format, d->vi->width, d->vi->height, nullptr, core);
         VSFrameRef * dst = vsapi->copyFrame(src, core);
